@@ -18,7 +18,6 @@ import hashlib
 from functools import lru_cache
 from typing import Optional
 import redis
-import re
 
 # 导入钉钉Stream SDK
 from dingtalk_stream import AckMessage
@@ -75,12 +74,10 @@ class Translator:
     def detect_language(self, text):
         """检测语言"""
         try:
-            # 修复语言检测逻辑
+            # 更精确的语言代码处理
             lang = detect(text)
-            # 将中文检测结果标准化为'zh'，越南语为'vi'
-            lang_code = {'zh': 'zh', 'vi': 'vi'}.get(lang.split('-')[0], lang)
-            return lang_code  # 直接返回标准语言代码
-        except Exception as e:
+            return {'zh': 'chinese', 'vi': 'vietnamese'}.get(lang.split('-')[0], lang)
+        except langdetect.lang_detect_exception.LangDetectException as e:  # 更具体的异常捕获
             logger.warning(f"语言检测失败: {text[:30]}...")
             return 'unknown'
     
@@ -155,14 +152,13 @@ class Translator:
             return f"翻译失败: {e}", source_lang
     
     def _get_translation_prompt(self, text, source_lang, target_lang):
-        """修复翻译提示词逻辑"""
-        # 明确指定翻译方向
-        if source_lang == 'zh' and target_lang == 'vi':
-            return f"请将以下中文文本准确翻译成越南语（使用纯越南语，不要添加中文解释）:\n\n{text}"
-        elif source_lang == 'vi' and target_lang == 'zh':
-            return f"请将以下越南语文本准确翻译成中文（使用纯中文，不要添加越南语解释）:\n\n{text}"
+        """获取翻译提示"""
+        if source_lang == 'chinese' and target_lang == 'vietnamese':
+            return f"请将以下中文文本准确翻译成越南语，保持原文的语气和风格:\n\n{text}"
+        elif source_lang == 'vietnamese' and target_lang == 'chinese':
+            return f"请将以下越南语文本准确翻译成中文，保持原文的语气和风格:\n\n{text}"
         else:
-            return f"请将以下{source_lang}文本翻译成{target_lang}（保持原文语气）:\n\n{text}"
+            return f"请将以下{source_lang}文本翻译成{target_lang}:\n\n{text}"
 
 
 class TranslatorChatbotHandler(ChatbotHandler):
@@ -198,11 +194,8 @@ class TranslatorChatbotHandler(ChatbotHandler):
             
             logger.debug(f"原始回调数据: {message.to_dict()}")
 
-            # 增强@信息处理（使用正则表达式处理所有@信息）
-            content = re.sub(r'@\S+?\s', '', message.text.content).strip()  # 移除所有@信息
-            
-            # 添加调试日志
-            logger.debug(f"清洗后内容: {content}")
+            # 移除@用户提取和处理逻辑
+            content = message.text.content.replace("@翻译机器人", "").strip()
             
             if not content:
                 await self.reply_text("请输入需要翻译的文本")
